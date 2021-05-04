@@ -1,19 +1,19 @@
 ---
-- name: Create BUILD container
+- name: Create two ec2 instance
   hosts: localhost
   gather_facts: False
 
   vars:
       region: us-east-2
       instance_type: t2.micro
-      ami: ami-08962a4068733a2b6  # Ubuntu 20.04 LTS
+      ami: ami-08962a4068733a2b6  
       private_subnet_id: subnet-d9d63fa4
-      keypair: aws_key # pem file name
+      keypair: aws_key 
   tasks:
     - name: Create two  ec2 instance
       ec2:
          key_name: "{{ keypair }}"
-         group: default  # security group name
+         group: default  
          instance_type: "{{ instance_type }}"
          image: "{{ ami }}"
          wait: true
@@ -24,33 +24,31 @@
       register: ec2
 
     - debug:
-         var: ec2.instances[0].public_ip, ec2.instances[1].public_ip
+         var: ec2.instances[0].public_ip,ec2.instances[1].public_ip
 
     - name: Wait for instances to listen on port 22
       wait_for:
          state: started
-         host: "{{ ec2.instances[1].public_dns_name }}"
+         host: "{{ ec2.instances[0].public_dns_name }}"
          port: 22
 
     - name: Update inventory add build
       add_host:
          hostname: "{{ ec2.instances[0].public_ip }}"
-         instance_id: "{{ ec2.instances[0].id }}"
          groups: build
-
     - name: Update inventory add prod
       add_host:
          hostname: "{{ ec2.instances[1].public_ip }}"
-         instance_id: "{{ ec2.instances[1].id }}"
          groups: prod
 
-
-- name: Build artifact 
+- name: Create BUILD environment 
   remote_user: ubuntu
   hosts: build 
   become: yes
   become_user: root
-
+  vars: 
+      volume_name: vweb-app
+      volume_path: "/var/lib/docker/volumes/{{ volume_name }}/_data/"
   tasks:
     - name: Ensure docker is present 
       apt:
@@ -62,16 +60,17 @@
       command: "docker pull vmdocker2022/ansiblaws_hw13"
 
     - name: Run container BUILD
-      command: "docker run -it --name hw13_container_build -d --volume /home/ubuntu:/tmp  vmdocker2022/ansiblaws_hw13"      
+      command: "docker run -it --name hw13_container_build -d \
+      --mount type=volume,source={{ volume_name }},target=/home/user/target vmdocker2022/ansiblaws_hw13"      
 
-    - name: Copy artifact from BUILD ENV
+    - name: Copy artifact from BUILD ENV to localhost
       synchronize:
          mode: pull
-         src: /tmp/hello-1.0.war
+         src: "{{ volume_path }}/hello-1.0.war"
          dest: /home/user
 
-
-- name: Create PROD container
+ 
+- name: Create PROD environment
   remote_user: ubuntu
   hosts: prod
   become: yes
@@ -88,31 +87,11 @@
       command: "docker pull vmdocker2022/ansiblaws_hw13_prod"
 
     - name: Run container PROD
-      command: "docker run -it --name hw13_container_prod -d -p 8080:8080 --volume /home/ubuntu/:/var/lib/jetty/webapps vmdocker2022/ansiblaws_hw13_prod"
+      command: "docker run -it --name hw13_container_prod -d \
+      -p 8080:8080 -v /home/user2:/usr/local/jetty/demo-base/webapps vmdocker2022/ansiblaws_hw13_prod"
 
-#    - name: Copy artifact to PROD ENV
-#      synchronize:
-#       src: /home/user/hello-1.0.war
-#       dest: /home/user/target
-
-
-    #  delegate_to: "{{ ec2.instances[0].public_ip }}"
-    #  with_items: {{ ec2 }}
-
-
-#    - name: Ensure python3-pip is present
-#      apt:
-#         name: python3-pip
-#         state: present
-#         update_cache: yes
-#    - name: Ensure docker is present
-#      pip:
-#         name: docker
-#         state: present
-#         update_cache: yes
-
-#       docker_image:
-#        name: "vmdocker2022/built-hw8"
-#        source: pull
-#        state: present
-#        pull: yes
+    - name: Copy artifact from local to PROD ENV
+      synchronize:
+         src:  /home/user/hello-1.0.war
+         dest: /home/user2
+© 2021 GitHub, Inc.
